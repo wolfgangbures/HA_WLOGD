@@ -92,39 +92,45 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             firstnext = stop_entry.get(CONF_FIRST_NEXT, global_firstnext)
 
         api = WienerlinienAPI(session, stopid)
-        try:
-            data = await api.get_json()
-        except Exception as err:
-            _LOGGER.error("Could not reach Wiener Linien API for stop %s: %s", stopid, err)
-            raise PlatformNotReady from err
 
+        # Best effort bootstrap. Sensors are still created if startup fetch fails,
+        # so they can recover automatically on later update cycles.
+        data = await api.get_json()
         monitors = (data or {}).get("data", {}).get("monitors", [])
-        if not monitors:
-            _LOGGER.error(
-                "No monitors returned for stop %s – check the stop id", stopid
-            )
-            continue
 
-        # Find the right monitor index (0-based)
         monitor_idx = 0
-        if lineid is not None:
-            for idx, monitor in enumerate(monitors):
-                if monitor.get("lines", [{}])[0].get("lineId") == lineid:
-                    monitor_idx = idx
-                    break
-            else:
-                _LOGGER.warning(
-                    "Line %s not found at stop %s, falling back to first monitor",
-                    lineid,
-                    stopid,
-                )
+        stopname = f"Stop {stopid}"
+        linename = str(lineid) if lineid is not None else "?"
+        destination = "unknown"
+        vehicle_type = ""
 
-        monitor = monitors[monitor_idx]
-        line = monitor["lines"][0]
-        stopname = monitor["locationStop"]["properties"]["title"].strip()
-        linename = line["name"].strip()
-        destination = line["towards"].strip()
-        vehicle_type = line.get("type", "")
+        if monitors:
+            if lineid is not None:
+                for idx, monitor in enumerate(monitors):
+                    if monitor.get("lines", [{}])[0].get("lineId") == lineid:
+                        monitor_idx = idx
+                        break
+                else:
+                    _LOGGER.warning(
+                        "Line %s not found at stop %s, falling back to first monitor",
+                        lineid,
+                        stopid,
+                    )
+
+            try:
+                monitor = monitors[monitor_idx]
+                line = monitor["lines"][0]
+                stopname = monitor["locationStop"]["properties"]["title"].strip()
+                linename = line.get("name", linename).strip()
+                destination = line.get("towards", destination).strip()
+                vehicle_type = line.get("type", "")
+            except (KeyError, IndexError, TypeError, AttributeError):
+                _LOGGER.debug("Could not parse monitor bootstrap data for stop %s", stopid)
+        else:
+            _LOGGER.warning(
+                "No monitors returned for stop %s during setup, creating sensor anyway",
+                stopid,
+            )
 
         sensor_key = f"{stopid}-{monitor_idx}-{firstnext}"
         if sensor_key in seen:
@@ -141,6 +147,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                 firstnext=firstnext,
                 monitor_idx=monitor_idx,
                 vehicle_type=vehicle_type,
+                preferred_lineid=lineid,
             )
         )
 
@@ -161,6 +168,7 @@ class WienerlinienSensor(SensorEntity):
         firstnext: str,
         monitor_idx: int,
         vehicle_type: str,
+        preferred_lineid: int | None,
     ) -> None:
         self._api = api
         self._stopname = stopname
@@ -169,6 +177,7 @@ class WienerlinienSensor(SensorEntity):
         self._firstnext = firstnext
         self._monitor_idx = monitor_idx
         self._vehicle_type = vehicle_type
+        self._preferred_lineid = preferred_lineid
 
         base = f"{stopname} {linename} -> {destination}"
         self._attr_name = f"{base} {DEPARTURE_LABEL[firstnext]}"
@@ -195,6 +204,13 @@ class WienerlinienSensor(SensorEntity):
 
         try:
             monitors = data["data"]["monitors"]
+
+            if self._preferred_lineid is not None:
+                for idx, monitor in enumerate(monitors):
+                    if monitor.get("lines", [{}])[0].get("lineId") == self._preferred_lineid:
+                        self._monitor_idx = idx
+                        break
+
             line = monitors[self._monitor_idx]["lines"][0]
             departures = line["departures"]["departure"]
             departure = departures[DEPARTURE_INDEX[self._firstnext]]
