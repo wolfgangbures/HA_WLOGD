@@ -76,6 +76,16 @@ stops:
 - Added per-stop departure mode override (`firstnext`) support.
 - Expanded README with complete setup and configuration examples.
 
+## Acknowledgements
+
+- Original project reference: https://github.com/tofuSCHNITZEL/home-assistant-wienerlinien
+- This custom component builds on and adapts ideas from the upstream implementation.
+
+## AI assistance
+
+- Parts of the code and documentation updates were prepared with AI assistance.
+- All changes were reviewed and validated by the maintainer before release.
+
 ## Source
 
 - Documentation: https://github.com/wolfgangbures/HA_WLOGD
