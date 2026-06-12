@@ -29,8 +29,10 @@ from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.core import HomeAssistant
+from homeassistant.util import slugify
 from homeassistant.util.dt import parse_datetime
 
 from .const import (
@@ -234,6 +236,7 @@ class WienerlinienSensor(SensorEntity):
         )
         self._attr_native_value: datetime | None = None
         self._attr_extra_state_attributes: dict = {}
+        self._entity_id_migrated = False
 
     @property
     def icon(self) -> str:
@@ -266,6 +269,21 @@ class WienerlinienSensor(SensorEntity):
                         break
 
             line = monitors[self._monitor_idx]["lines"][0]
+            stop_title = (
+                monitors[self._monitor_idx]
+                .get("locationStop", {})
+                .get("properties", {})
+                .get("title", self._stopname)
+            )
+            self._stopname = str(stop_title).strip() or self._stopname
+            self._linename = str(line.get("name", self._linename)).strip() or self._linename
+            self._destination = (
+                str(line.get("towards", self._destination)).strip() or self._destination
+            )
+            self._attr_name = (
+                f"{self._stopname} {self._linename} -> {self._destination} "
+                f"{DEPARTURE_LABEL[self._firstnext]}"
+            )
             self._vehicle_type = line.get("type", self._vehicle_type)
             departures = line["departures"]["departure"]
             departure = departures[DEPARTURE_INDEX[self._firstnext]]
@@ -290,9 +308,43 @@ class WienerlinienSensor(SensorEntity):
                 "traffic_jam": line.get("trafficjam"),
                 "countdown_min": dep_time.get("countdown"),
             }
+
+            await self._async_migrate_entity_id_if_needed()
         except (KeyError, IndexError, TypeError) as err:
             _LOGGER.debug(
                 "Unexpected API response structure for %s: %s", self._attr_name, err
+            )
+
+    async def _async_migrate_entity_id_if_needed(self) -> None:
+        """Rename unknown-based entity IDs to descriptive IDs once data is known."""
+        if self._entity_id_migrated or not self.entity_id or "_unknown_" not in self.entity_id:
+            return
+
+        if self._linename in {"", "?"} or self._destination in {"", "unknown"}:
+            return
+
+        registry = er.async_get(self.hass)
+        mode = self._firstnext
+        desired_object_id = slugify(
+            f"{self._stopname}_{self._linename}_{self._destination}_{mode}_departure"
+        )
+        if not desired_object_id:
+            return
+
+        new_entity_id = f"sensor.{desired_object_id}"
+        if new_entity_id == self.entity_id:
+            self._entity_id_migrated = True
+            return
+
+        try:
+            registry.async_update_entity(self.entity_id, new_entity_id=new_entity_id)
+            self._entity_id_migrated = True
+            _LOGGER.debug("Renamed entity_id %s -> %s", self.entity_id, new_entity_id)
+        except ValueError:
+            _LOGGER.debug(
+                "Could not rename entity_id %s -> %s (already exists)",
+                self.entity_id,
+                new_entity_id,
             )
 
 
