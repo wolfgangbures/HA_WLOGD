@@ -193,6 +193,7 @@ class WienerlinienSensor(SensorEntity):
 
     async def async_update(self) -> None:
         """Fetch latest departure data from the API."""
+        _LOGGER.debug("Updating sensor: %s", self._attr_name)
         try:
             data = await self._api.get_json()
         except Exception as err:
@@ -200,6 +201,7 @@ class WienerlinienSensor(SensorEntity):
             return
 
         if not data:
+            _LOGGER.debug("No data returned for %s, skipping update", self._attr_name)
             return
 
         try:
@@ -209,6 +211,10 @@ class WienerlinienSensor(SensorEntity):
                 for idx, monitor in enumerate(monitors):
                     if monitor.get("lines", [{}])[0].get("lineId") == self._preferred_lineid:
                         self._monitor_idx = idx
+                        _LOGGER.debug(
+                            "Matched line_id %s at monitor index %d for %s",
+                            self._preferred_lineid, idx, self._attr_name,
+                        )
                         break
 
             line = monitors[self._monitor_idx]["lines"][0]
@@ -219,6 +225,10 @@ class WienerlinienSensor(SensorEntity):
             raw = dep_time.get("timeReal") or dep_time.get("timePlanned")
             if raw:
                 self._attr_native_value = parse_datetime(raw)
+                _LOGGER.debug(
+                    "%s -> departure time: %s (countdown: %s min)",
+                    self._attr_name, raw, dep_time.get("countdown"),
+                )
 
             self._attr_extra_state_attributes = {
                 "destination": line.get("towards"),
@@ -247,10 +257,28 @@ class WienerlinienAPI:
     async def get_json(self) -> dict | None:
         """Return parsed JSON response or None on error."""
         url = BASE_URL.format(self.stopid)
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.wienerlinien.at/",
+        }
+        _LOGGER.debug("Fetching stop %s from %s", self.stopid, url)
         try:
             async with asyncio.timeout(10):
-                response = await self.session.get(url, raise_for_status=True)
-                return await response.json()
+                response = await self.session.get(url, headers=headers, raise_for_status=True)
+                _LOGGER.debug(
+                    "Stop %s responded HTTP %s", self.stopid, response.status
+                )
+                data = await response.json()
+                monitors = (data or {}).get("data", {}).get("monitors", [])
+                _LOGGER.debug(
+                    "Stop %s: received %d monitor(s)", self.stopid, len(monitors)
+                )
+                return data
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.warning("API request failed for stop %s: %s", self.stopid, err)
             return None
