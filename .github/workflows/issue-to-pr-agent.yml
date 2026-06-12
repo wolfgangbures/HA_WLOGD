@@ -1,0 +1,71 @@
+name: Issue → AI Agent PR
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  create-pr-from-issue:
+    if: ${{ github.event.issue.pull_request == null }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run Copilot coding agent from issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const problemTitle = `Implement fix for #${issue.number}: ${issue.title}`;
+            const problemStatement = `
+            A new GitHub issue was opened and should be analyzed and implemented.
+
+            Repository: ${owner}/${repo}
+            Issue: #${issue.number}
+            Title: ${issue.title}
+            Author: ${issue.user.login}
+            URL: ${issue.html_url}
+
+            Issue body:
+            ${issue.body || "(no description provided)"}
+
+            Instructions:
+            1. Analyze the issue and inspect relevant code paths.
+            2. Propose and implement a minimal, safe fix.
+            3. Add or update tests where appropriate.
+            4. Open a pull request referencing #${issue.number}.
+            5. In the PR description, include:
+               - Root cause
+               - Implementation summary
+               - Test coverage
+               - Risks / follow-ups
+            `;
+
+            await github.request("POST /repos/{owner}/{repo}/copilot/tasks", {
+              owner,
+              repo,
+              problem_title: problemTitle,
+              problem_statement: problemStatement,
+              create_pull_request: true
+            });
+
+      - name: Comment on issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: "🤖 I started an AI coding task to analyze this issue and prepare a suggested PR."
+            });
