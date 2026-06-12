@@ -2,7 +2,7 @@
 
 Custom Home Assistant sensor platform for Wiener Linien realtime departures.
 
-Version: 3.0.0 (final release)
+Version: 4.0.0
 
 ## Features
 
@@ -15,10 +15,10 @@ Version: 3.0.0 (final release)
 
 ## Installation
 
-1. Copy the folder `custom_components/wienerlinien` into your Home Assistant config directory:
+1. Copy the folder `custom_components/wlogd` into your Home Assistant config directory:
 
 ```text
-<config>/custom_components/wienerlinien
+<config>/custom_components/wlogd
 ```
 
 2. Restart Home Assistant.
@@ -29,7 +29,7 @@ Add to your `configuration.yaml`:
 
 ```yaml
 sensor:
-	- platform: wienerlinien
+	- platform: wlogd
 		firstnext: first
 		stops:
 			- 141
@@ -69,12 +69,20 @@ stops:
 - Polling interval is 30 seconds.
 - If startup fetch fails, entities are still created and recover on later updates.
 
-## 3.0.0 release notes
+## Migration from old domain
 
-- Finalized stable sensor behavior for startup and update cycles.
-- Improved parser robustness and fallback handling for API response changes.
-- Added per-stop departure mode override (`firstnext`) support.
-- Expanded README with complete setup and configuration examples.
+- Remove old folder `<config>/custom_components/wienerlinien` if present.
+- Install this integration under `<config>/custom_components/wlogd`.
+- Update YAML from `platform: wienerlinien` to `platform: wlogd`.
+- Restart Home Assistant.
+
+After migration, logs must come from `custom_components.wlogd.sensor`. If you still see `custom_components.wienerlinien.sensor`, Home Assistant is still loading an old integration copy.
+
+## 4.0.0 release notes
+
+- Renamed integration domain/platform to `wlogd` to avoid collisions with older copies.
+- Added explicit startup warning identifying the active integration namespace.
+- Keeps request de-duplication/caching logic to reduce burst traffic and temporary 403 responses.
 
 ## Acknowledgements
 

@@ -1,12 +1,12 @@
 """
-Wiener Linien departure sensor.
+WLOGD Wiener Linien departure sensor.
 
 Shows the next (or second-next) departure from a given stop for all lines
 serving that stop, or filtered to a specific line.
 
 Configuration (in sensors YAML):
 
-  - platform: wienerlinien
+    - platform: wlogd
     firstnext: first          # 'first' or 'next' (optional, default: first)
     stops:
       - 141                   # plain stop-id (int or quoted string)
@@ -76,6 +76,9 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up Wiener Linien departure sensors."""
+    _LOGGER.warning(
+        "WLOGD integration loaded (domain=wlogd, logger=custom_components.wlogd.sensor)"
+    )
     global_firstnext = config[CONF_FIRST_NEXT]
     session = async_get_clientsession(hass)
     entities: list[WienerlinienSensor] = []

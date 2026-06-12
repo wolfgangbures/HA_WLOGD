@@ -1,7 +1,7 @@
 {
-  "domain": "wienerlinien",
-  "name": "Vienna Lines OGD (Custom)",
-  "version": "3.1.1",
+  "domain": "wlogd",
+  "name": "Vienna Lines OGD (WLOGD)",
+  "version": "4.0.0",
   "documentation": "https://github.com/wolfgangbures/HA_WLOGD",
   "issue_tracker": "https://github.com/wolfgangbures/HA_WLOGD/issues",
   "codeowners": ["@wolfgangbures"],

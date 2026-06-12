@@ -1,6 +1,6 @@
-"""Constants for the Wiener Linien integration."""
+"""Constants for the WLOGD Wiener Linien integration."""
 
-DOMAIN = "wienerlinien"
+DOMAIN = "wlogd"
 
 BASE_URL = "https://www.wienerlinien.at/ogd_realtime/monitor?stopid={}"
 
