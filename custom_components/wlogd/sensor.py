@@ -42,6 +42,7 @@ from .const import (
     DEFAULT_ICON,
     DEPARTURE_INDEX,
     DEPARTURE_LABEL,
+    DOMAIN,
     VEHICLE_ICONS,
 )
 
@@ -83,7 +84,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     session = async_get_clientsession(hass)
     entities: list[WienerlinienSensor] = []
     seen: set[str] = set()
-    apis: dict[int, WienerlinienAPI] = {}
+    integration_data = hass.data.setdefault(DOMAIN, {})
+    apis: dict[int, WienerlinienAPI] = integration_data.setdefault("apis", {})
 
     for stop_entry in config[CONF_STOPS]:
         # Normalise both plain int and dict forms
@@ -96,7 +98,10 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             lineid = stop_entry.get(CONF_LINEID)
             firstnext = stop_entry.get(CONF_FIRST_NEXT, global_firstnext)
 
-        api = apis.setdefault(stopid, WienerlinienAPI(session, stopid))
+        api = apis.get(stopid)
+        if api is None or api.session is not session:
+            api = WienerlinienAPI(session, stopid)
+            apis[stopid] = api
 
         # Best effort bootstrap. Sensors are still created if startup fetch fails,
         # so they can recover automatically on later update cycles.
