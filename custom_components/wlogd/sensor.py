@@ -260,6 +260,10 @@ class WienerlinienSensor(SensorEntity):
 class WienerlinienAPI:
     """Thin async wrapper around the Wiener Linien OGD Realtime API."""
 
+    _global_rate_lock = asyncio.Lock()
+    _next_allowed_request_at: float = 0.0
+    _min_request_interval_seconds: float = 0.8
+
     def __init__(self, session: aiohttp.ClientSession, stopid: int) -> None:
         self.session = session
         self.stopid = stopid
@@ -267,6 +271,25 @@ class WienerlinienAPI:
         self._cached_data: dict | None = None
         self._cached_at: float = 0.0
         self._cache_ttl_seconds = 5.0
+        self._last_error_at: float = 0.0
+        self._error_cooldown_seconds = 8.0
+
+    async def _throttle_global(self) -> None:
+        """Limit global request rate to reduce API blocking risk."""
+        async with WienerlinienAPI._global_rate_lock:
+            now = monotonic()
+            wait_seconds = WienerlinienAPI._next_allowed_request_at - now
+            if wait_seconds > 0:
+                _LOGGER.debug(
+                    "Global throttle wait %.2fs before stop %s request",
+                    wait_seconds,
+                    self.stopid,
+                )
+                await asyncio.sleep(wait_seconds)
+
+            WienerlinienAPI._next_allowed_request_at = (
+                monotonic() + WienerlinienAPI._min_request_interval_seconds
+            )
 
     async def get_json(self) -> dict | None:
         """Return parsed JSON response or None on error."""
@@ -290,6 +313,17 @@ class WienerlinienAPI:
                 )
                 return self._cached_data
 
+            # Avoid immediate repeat calls after a failed request burst.
+            if (now - self._last_error_at) < self._error_cooldown_seconds:
+                _LOGGER.debug(
+                    "Skipping stop %s fetch due to cooldown (%.2fs remaining)",
+                    self.stopid,
+                    self._error_cooldown_seconds - (now - self._last_error_at),
+                )
+                if self._cached_data is not None:
+                    return self._cached_data
+                return None
+
             url = BASE_URL.format(self.stopid)
             headers = {
                 "User-Agent": (
@@ -298,29 +332,57 @@ class WienerlinienAPI:
                     "Chrome/125.0.0.0 Safari/537.36"
                 ),
                 "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
                 "Referer": "https://www.wienerlinien.at/",
+                "Origin": "https://www.wienerlinien.at",
             }
             _LOGGER.debug("Fetching stop %s from %s", self.stopid, url)
-            try:
-                async with asyncio.timeout(10):
-                    response = await self.session.get(url, headers=headers, raise_for_status=True)
-                    _LOGGER.debug(
-                        "Stop %s responded HTTP %s", self.stopid, response.status
-                    )
-                    data = await response.json()
-                    monitors = (data or {}).get("data", {}).get("monitors", [])
-                    _LOGGER.debug(
-                        "Stop %s: received %d monitor(s)", self.stopid, len(monitors)
-                    )
-                    self._cached_data = data
-                    self._cached_at = monotonic()
-                    return data
-            except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-                _LOGGER.warning("API request failed for stop %s: %s", self.stopid, err)
-                if self._cached_data is not None:
-                    _LOGGER.debug(
-                        "Returning stale cached data for stop %s after request failure",
-                        self.stopid,
-                    )
-                    return self._cached_data
-                return None
+            last_err: Exception | None = None
+            for attempt in range(2):
+                try:
+                    await self._throttle_global()
+                    async with asyncio.timeout(10):
+                        response = await self.session.get(
+                            url,
+                            headers=headers,
+                            raise_for_status=True,
+                        )
+                        _LOGGER.debug(
+                            "Stop %s responded HTTP %s", self.stopid, response.status
+                        )
+                        data = await response.json()
+                        monitors = (data or {}).get("data", {}).get("monitors", [])
+                        _LOGGER.debug(
+                            "Stop %s: received %d monitor(s)", self.stopid, len(monitors)
+                        )
+                        self._cached_data = data
+                        self._cached_at = monotonic()
+                        self._last_error_at = 0.0
+                        return data
+                except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+                    last_err = err
+                    if (
+                        isinstance(err, aiohttp.ClientResponseError)
+                        and err.status == 403
+                        and attempt == 0
+                    ):
+                        _LOGGER.debug(
+                            "Stop %s got 403, retrying once after short backoff",
+                            self.stopid,
+                        )
+                        await asyncio.sleep(1.0)
+                        continue
+                    break
+
+            self._last_error_at = monotonic()
+            if last_err is not None:
+                _LOGGER.warning(
+                    "API request failed for stop %s: %s", self.stopid, last_err
+                )
+            if self._cached_data is not None:
+                _LOGGER.debug(
+                    "Returning stale cached data for stop %s after request failure",
+                    self.stopid,
+                )
+                return self._cached_data
+            return None
