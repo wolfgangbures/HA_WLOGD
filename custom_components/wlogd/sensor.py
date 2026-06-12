@@ -232,7 +232,7 @@ class WienerlinienSensor(SensorEntity):
         base = f"{stopname} {linename} -> {destination}"
         self._attr_name = f"{base} {DEPARTURE_LABEL[firstnext]}"
         self._attr_unique_id = (
-            f"wienerlinien-{api.stopid}-{monitor_idx}-{firstnext}"
+            f"wlogd-{api.stopid}-{monitor_idx}-{firstnext}"
         )
         self._attr_native_value: datetime | None = None
         self._attr_extra_state_attributes: dict = {}
@@ -317,10 +317,19 @@ class WienerlinienSensor(SensorEntity):
 
     async def _async_migrate_entity_id_if_needed(self) -> None:
         """Rename unknown-based entity IDs to descriptive IDs once data is known."""
-        if self._entity_id_migrated or not self.entity_id or "_unknown_" not in self.entity_id:
+        if self._entity_id_migrated or not self.entity_id:
             return
 
         if self._linename in {"", "?"} or self._destination in {"", "unknown"}:
+            return
+
+        legacy_patterns = (
+            "_unknown_",
+            f"sensor.stop_{self._api.stopid}_",
+            f"sensor.wienerlinien_{self._api.stopid}_",
+        )
+        if not any(pattern in self.entity_id for pattern in legacy_patterns):
+            self._entity_id_migrated = True
             return
 
         registry = er.async_get(self.hass)
