@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import monotonic
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
@@ -79,6 +80,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     session = async_get_clientsession(hass)
     entities: list[WienerlinienSensor] = []
     seen: set[str] = set()
+    apis: dict[int, WienerlinienAPI] = {}
 
     for stop_entry in config[CONF_STOPS]:
         # Normalise both plain int and dict forms
@@ -91,7 +93,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             lineid = stop_entry.get(CONF_LINEID)
             firstnext = stop_entry.get(CONF_FIRST_NEXT, global_firstnext)
 
-        api = WienerlinienAPI(session, stopid)
+        api = apis.setdefault(stopid, WienerlinienAPI(session, stopid))
 
         # Best effort bootstrap. Sensors are still created if startup fetch fails,
         # so they can recover automatically on later update cycles.
@@ -253,32 +255,64 @@ class WienerlinienAPI:
     def __init__(self, session: aiohttp.ClientSession, stopid: int) -> None:
         self.session = session
         self.stopid = stopid
+        self._lock = asyncio.Lock()
+        self._cached_data: dict | None = None
+        self._cached_at: float = 0.0
+        self._cache_ttl_seconds = 5.0
 
     async def get_json(self) -> dict | None:
         """Return parsed JSON response or None on error."""
-        url = BASE_URL.format(self.stopid)
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://www.wienerlinien.at/",
-        }
-        _LOGGER.debug("Fetching stop %s from %s", self.stopid, url)
-        try:
-            async with asyncio.timeout(10):
-                response = await self.session.get(url, headers=headers, raise_for_status=True)
+        now = monotonic()
+        if self._cached_data is not None and (now - self._cached_at) < self._cache_ttl_seconds:
+            _LOGGER.debug(
+                "Using cached response for stop %s (age: %.2fs)",
+                self.stopid,
+                now - self._cached_at,
+            )
+            return self._cached_data
+
+        async with self._lock:
+            # Re-check cache inside lock so concurrent sensor updates share one fetch.
+            now = monotonic()
+            if self._cached_data is not None and (now - self._cached_at) < self._cache_ttl_seconds:
                 _LOGGER.debug(
-                    "Stop %s responded HTTP %s", self.stopid, response.status
+                    "Using cached response for stop %s after lock (age: %.2fs)",
+                    self.stopid,
+                    now - self._cached_at,
                 )
-                data = await response.json()
-                monitors = (data or {}).get("data", {}).get("monitors", [])
-                _LOGGER.debug(
-                    "Stop %s: received %d monitor(s)", self.stopid, len(monitors)
-                )
-                return data
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            _LOGGER.warning("API request failed for stop %s: %s", self.stopid, err)
-            return None
+                return self._cached_data
+
+            url = BASE_URL.format(self.stopid)
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, text/plain, */*",
+                "Referer": "https://www.wienerlinien.at/",
+            }
+            _LOGGER.debug("Fetching stop %s from %s", self.stopid, url)
+            try:
+                async with asyncio.timeout(10):
+                    response = await self.session.get(url, headers=headers, raise_for_status=True)
+                    _LOGGER.debug(
+                        "Stop %s responded HTTP %s", self.stopid, response.status
+                    )
+                    data = await response.json()
+                    monitors = (data or {}).get("data", {}).get("monitors", [])
+                    _LOGGER.debug(
+                        "Stop %s: received %d monitor(s)", self.stopid, len(monitors)
+                    )
+                    self._cached_data = data
+                    self._cached_at = monotonic()
+                    return data
+            except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+                _LOGGER.warning("API request failed for stop %s: %s", self.stopid, err)
+                if self._cached_data is not None:
+                    _LOGGER.debug(
+                        "Returning stale cached data for stop %s after request failure",
+                        self.stopid,
+                    )
+                    return self._cached_data
+                return None
