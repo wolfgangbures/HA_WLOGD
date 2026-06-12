@@ -57,3 +57,18 @@ class WlogdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    async def async_step_import(self, import_config):
+        """Handle import from YAML config."""
+        stops = import_config.get(CONF_STOPS, [])
+        firstnext = import_config.get(CONF_FIRST_NEXT, CONF_FIRST)
+        unique_id = f"import-{firstnext}-{'-'.join(map(str, stops))}"
+        await self.async_set_unique_id(unique_id)
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=f"WLOGD (YAML import: {', '.join(map(str, stops))})",
+            data={
+                CONF_STOPS: stops,
+                CONF_FIRST_NEXT: firstnext,
+            },
+        )
