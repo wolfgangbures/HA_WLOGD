@@ -43,6 +43,7 @@ from .const import (
     DEPARTURE_INDEX,
     DEPARTURE_LABEL,
     DOMAIN,
+    FALLBACK_URL,
     VEHICLE_ICONS,
 )
 
@@ -324,21 +325,16 @@ class WienerlinienAPI:
                     return self._cached_data
                 return None
 
-            url = BASE_URL.format(self.stopid)
+            primary_url = BASE_URL.format(self.stopid)
+            fallback_url = FALLBACK_URL.format(self.stopid)
             headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/125.0.0.0 Safari/537.36"
-                ),
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
-                "Referer": "https://www.wienerlinien.at/",
-                "Origin": "https://www.wienerlinien.at",
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json",
             }
-            _LOGGER.debug("Fetching stop %s from %s", self.stopid, url)
+            _LOGGER.debug("Fetching stop %s from %s", self.stopid, primary_url)
             last_err: Exception | None = None
             for attempt in range(2):
+                url = primary_url if attempt == 0 else fallback_url
                 try:
                     await self._throttle_global()
                     async with asyncio.timeout(10):
@@ -367,7 +363,7 @@ class WienerlinienAPI:
                         and attempt == 0
                     ):
                         _LOGGER.debug(
-                            "Stop %s got 403, retrying once after short backoff",
+                            "Stop %s got 403 on stopid URL, retrying with rbl URL",
                             self.stopid,
                         )
                         await asyncio.sleep(1.0)

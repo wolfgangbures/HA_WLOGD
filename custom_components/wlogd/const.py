@@ -3,6 +3,7 @@
 DOMAIN = "wlogd"
 
 BASE_URL = "https://www.wienerlinien.at/ogd_realtime/monitor?stopid={}"
+FALLBACK_URL = "https://www.wienerlinien.at/ogd_realtime/monitor?rbl={}"
 
 CONF_STOPS = "stops"
 CONF_STOP = "stop"
