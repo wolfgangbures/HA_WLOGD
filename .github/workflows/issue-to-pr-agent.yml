@@ -39,9 +39,9 @@ jobs:
             
             Instructions:
             1. Analyze the issue and inspect relevant code paths.
-            2. Retrieve live Home Assistant logs from the HA1180 repos exposed ha-logs retrieval script before making changes.
-               - Use the HA1180-provided ha-logs script/path from this repository.
-               - Collect relevant logs for the timeframe and components implicated by the issue.
+            2. Retrieve live Home Assistant logs from the HA1180 live instance with the ha-logs-retrieval.yml workflow
+               - Use ha-logs-retrieval.yml from this repository.
+               - download artifact ha-logs
                - Summarize key errors/warnings and probable root cause from those logs.
             3. Propose and implement a minimal, safe fix based on code + live log evidence.
             4. Add or update tests where appropriate.
