@@ -229,6 +229,7 @@ class WienerlinienSensor(SensorEntity):
                         break
 
             line = monitors[self._monitor_idx]["lines"][0]
+            self._vehicle_type = line.get("type", self._vehicle_type)
             departures = line["departures"]["departure"]
             departure = departures[DEPARTURE_INDEX[self._firstnext]]
             dep_time = departure["departureTime"]
