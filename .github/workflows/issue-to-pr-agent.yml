@@ -36,18 +36,21 @@ jobs:
 
             Issue body:
             ${issue.body || "(no description provided)"}
-
+            
             Instructions:
             1. Analyze the issue and inspect relevant code paths.
-            2. Propose and implement a minimal, safe fix.
-            3. Add or update tests where appropriate.
-            4. Open a pull request referencing #${issue.number}.
-            5. In the PR description, include:
-               - Root cause
+            2. Retrieve live Home Assistant logs from the HA1180 repos exposed ha-logs retrieval script before making changes.
+               - Use the HA1180-provided ha-logs script/path from this repository.
+               - Collect relevant logs for the timeframe and components implicated by the issue.
+               - Summarize key errors/warnings and probable root cause from those logs.
+            3. Propose and implement a minimal, safe fix based on code + live log evidence.
+            4. Add or update tests where appropriate.
+            5. Open a pull request referencing #${issue.number}.
+            6. In the PR description, include:
+               - Root cause (including log evidence from HA1180 ha-logs retrieval)
                - Implementation summary
                - Test coverage
                - Risks / follow-ups
-            `;
 
             await github.request("POST /repos/{owner}/{repo}/copilot/tasks", {
               owner,
