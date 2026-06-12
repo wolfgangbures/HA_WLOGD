@@ -449,12 +449,13 @@ class WienerlinienAPI:
                     last_err = err
                     if (
                         isinstance(err, aiohttp.ClientResponseError)
-                        and err.status == 403
+                        and err.status in {403, 502}
                         and attempt == 0
                     ):
                         _LOGGER.debug(
-                            "Stop %s got 403 on stopid URL, retrying with rbl URL",
+                            "Stop %s got HTTP %s, retrying with rbl URL",
                             self.stopid,
+                            err.status,
                         )
                         await asyncio.sleep(1.0)
                         continue
