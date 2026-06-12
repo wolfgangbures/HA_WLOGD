@@ -26,8 +26,11 @@ import aiohttp
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant
 from homeassistant.util.dt import parse_datetime
 
 from .const import (
@@ -81,14 +84,48 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     _LOGGER.warning(
         "WLOGD integration loaded (domain=wlogd, logger=custom_components.wlogd.sensor)"
     )
-    global_firstnext = config[CONF_FIRST_NEXT]
     session = async_get_clientsession(hass)
+    entities = await _async_build_entities(
+        hass,
+        session,
+        config[CONF_STOPS],
+        config[CONF_FIRST_NEXT],
+    )
+    async_add_entities(entities, update_before_add=True)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up WLOGD sensors from a config entry."""
+    _LOGGER.warning(
+        "WLOGD config entry loaded (domain=wlogd, logger=custom_components.wlogd.sensor)"
+    )
+    session = async_get_clientsession(hass)
+    entities = await _async_build_entities(
+        hass,
+        session,
+        entry.data[CONF_STOPS],
+        entry.data.get(CONF_FIRST_NEXT, CONF_FIRST),
+    )
+    async_add_entities(entities, update_before_add=True)
+
+
+async def _async_build_entities(
+    hass: HomeAssistant,
+    session: aiohttp.ClientSession,
+    stops: list[int | dict],
+    global_firstnext: str,
+) -> list["WienerlinienSensor"]:
+    """Build sensor entities from stop configuration."""
     entities: list[WienerlinienSensor] = []
     seen: set[str] = set()
     integration_data = hass.data.setdefault(DOMAIN, {})
     apis: dict[int, WienerlinienAPI] = integration_data.setdefault("apis", {})
 
-    for stop_entry in config[CONF_STOPS]:
+    for stop_entry in stops:
         # Normalise both plain int and dict forms
         if isinstance(stop_entry, int):
             stopid = stop_entry
@@ -162,7 +199,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             )
         )
 
-    async_add_entities(entities, update_before_add=True)
+    return entities
 
 
 class WienerlinienSensor(SensorEntity):

@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "WLOGD setup",
+        "description": "Create Wiener Linien departure sensors from the UI.",
+        "data": {
+          "stops": "Stops (comma-separated, e.g. 141,160,143)",
+          "firstnext": "Departure mode"
+        }
+      }
+    },
+    "error": {
+      "invalid_stops": "Invalid stops format"
+    }
+  }
+}
